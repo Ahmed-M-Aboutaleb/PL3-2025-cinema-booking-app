@@ -64,6 +64,10 @@ module UI =
 
         btnSaveMovie.Click.Add(fun _ ->
             Core.validateMovieInputs txtTitle.Text txtTime.Text numPrice.Value cmbHalls.SelectedIndex cachedHalls
+            |> Result.bind (fun movie ->
+                Database.ensureNoScheduleConflict movie
+                |> Result.map (fun _ -> movie)
+            )
             |> Result.bind Database.insertMovie
             |> function
                | Ok _ -> MessageBox.Show("Movie Saved!"); onDataChanged(); form.Close()
