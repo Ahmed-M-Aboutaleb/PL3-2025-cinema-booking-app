@@ -7,6 +7,10 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
+    <Compile Include="DatabaseTests.fs" />
+    <Compile Include="CoreTests.fs" />
+    <Compile Include="FileSystemTests.fs" />
+    <Compile Include="UITests.fs" />
   </ItemGroup>
 
   <ItemGroup>
