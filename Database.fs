@@ -71,10 +71,32 @@ module Database =
             |> Ok
         )
 
+    /// Ensures the hall/time combination is free before inserting a movie.
+    let ensureNoScheduleConflict (m: Movie) =
+        tryExecute (fun () ->
+            use conn = new MySqlConnection(connectionString)
+            conn.Open()
+            use cmd = new MySqlCommand("SELECT COUNT(*) FROM movies WHERE HallId = @hid AND ShowTime = @time", conn)
+            cmd.Parameters.AddWithValue("@hid", m.HallId) |> ignore
+            cmd.Parameters.AddWithValue("@time", m.Time) |> ignore
+            let count = cmd.ExecuteScalar() :?> int64
+            Ok count
+        )
+        |> Result.bind (fun count ->
+            if count > 0L then Error "Another movie is already scheduled in this hall at the same time."
+            else Ok ()
+        )
+
     let insertMovie (m: Movie) =
-        executeNonQuery 
-            "INSERT INTO movies (Id, Title, ShowTime, Price, HallId) VALUES (@id, @title, @time, @price, @hid)" 
-            [ ("@id", box m.Id); ("@title", box m.Title); ("@time", box m.Time); ("@price", box m.Price); ("@hid", box m.HallId) ]
+        let result =
+            executeNonQuery 
+                "INSERT INTO movies (Id, Title, ShowTime, Price, HallId) VALUES (@id, @title, @time, @price, @hid)" 
+                [ ("@id", box m.Id); ("@title", box m.Title); ("@time", box m.Time); ("@price", box m.Price); ("@hid", box m.HallId) ]
+
+        match result with
+        | Error msg when msg.Contains("Duplicate entry") && msg.Contains("hall_time") ->
+            Error "Another movie is already scheduled in this hall at the same time."
+        | other -> other
 
     let insertHall (h: Hall) =
         executeNonQuery 

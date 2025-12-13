@@ -22,6 +22,7 @@ CREATE TABLE movies (
     ShowTime VARCHAR(20),
     Price DECIMAL(10,2),
     HallId VARCHAR(50),
+    CONSTRAINT uniq_hall_time UNIQUE (HallId, ShowTime),
     FOREIGN KEY (HallId) REFERENCES halls(Id)
 );
 
