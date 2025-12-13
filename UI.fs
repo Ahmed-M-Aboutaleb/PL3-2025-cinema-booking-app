@@ -14,7 +14,7 @@ module UI =
             this.Text <- sprintf "%d-%d" (r+1) (c+1)
             this.Size <- Size(50, 50)
             this.Margin <- Padding(5)
-            this.BackColor <- Color.LightGray 
+            this.BackColor <- Color.LightGray
             this.Click.Add(fun _ -> onClick r c)
         
         member this.Render(bookedSeats: Set<int*int>) =
@@ -24,6 +24,122 @@ module UI =
             else 
                 this.BackColor <- Color.LightGreen
                 this.Enabled <- true
+
+    let createAdminForm (onDataChanged: unit -> unit) =
+        let form = new Form(Text = "Admin Dashboard", Size = Size(350, 500), StartPosition = FormStartPosition.CenterParent)
+        let tabs = new TabControl(Dock = DockStyle.Fill)
+        
+
+        let mutable cachedHalls : Hall list = [] 
+
+        let txtTitle = new TextBox(PlaceholderText = "Movie Title", Dock = DockStyle.Top)
+        let txtTime = new TextBox(PlaceholderText = "Time (e.g. 18:00)", Dock = DockStyle.Top)
+        let numPrice = new NumericUpDown(Minimum = 1M, Maximum = 100M, Value = 12M, Dock = DockStyle.Top)
+        let cmbHalls = new ComboBox(Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList)
+        let btnSaveMovie = new Button(Text = "SAVE MOVIE", Dock = DockStyle.Top, Height = 40, BackColor = Color.LightBlue)
+
+        let txtHallName = new TextBox(PlaceholderText = "Hall Name", Dock = DockStyle.Top)
+        let numRows = new NumericUpDown(Minimum = 2M, Maximum = 50M, Value = 10M, Dock = DockStyle.Top)
+        let numCols = new NumericUpDown(Minimum = 2M, Maximum = 50M, Value = 12M, Dock = DockStyle.Top)
+        let btnSaveHall = new Button(Text = "CREATE HALL", Dock = DockStyle.Top, Height = 40, BackColor = Color.LightGreen)
+
+
+        let refreshHalls () =
+            cmbHalls.Items.Clear()
+            match Database.getAllHalls() with
+            | Ok halls -> 
+                cachedHalls <- halls
+                halls |> List.iter (fun h -> cmbHalls.Items.Add(sprintf "%s (%dx%d)" h.Name h.Rows h.Cols) |> ignore)
+                if cmbHalls.Items.Count > 0 then cmbHalls.SelectedIndex <- 0
+            | Error e -> MessageBox.Show("Failed to load halls: " + e) |> ignore
+
+
+        btnSaveHall.Click.Add(fun _ ->
+            Core.validateHallInputs txtHallName.Text numRows.Value numCols.Value
+            |> Result.bind Database.insertHall
+            |> function
+               | Ok _ -> MessageBox.Show("Hall Created!"); refreshHalls(); txtHallName.Text <- ""
+               | Error e -> MessageBox.Show("Error: " + e) |> ignore
+        )
+
+        btnSaveMovie.Click.Add(fun _ ->
+            Core.validateMovieInputs txtTitle.Text txtTime.Text numPrice.Value cmbHalls.SelectedIndex cachedHalls
+            |> Result.bind Database.insertMovie
+            |> function
+               | Ok _ -> MessageBox.Show("Movie Saved!"); onDataChanged(); form.Close()
+               | Error e -> MessageBox.Show("Error: " + e) |> ignore
+        )
+
+
+        let pageMovie = new TabPage("Add Movie")
+        pageMovie.Padding <- Padding(20)
+
+        pageMovie.Controls.AddRange([| 
+            btnSaveMovie; 
+            cmbHalls; new Label(Text="Select Hall", Dock=DockStyle.Top, AutoSize=true); 
+            numPrice; new Label(Text="Price", Dock=DockStyle.Top, AutoSize=true); 
+            txtTime; new Label(Text="Time", Dock=DockStyle.Top, AutoSize=true); 
+            txtTitle; new Label(Text="Title", Dock=DockStyle.Top, AutoSize=true) 
+        |])
+        
+        let pageHall = new TabPage("Create Hall")
+        pageHall.Padding <- Padding(20)
+        pageHall.Controls.AddRange([| 
+            btnSaveHall; 
+            numCols; new Label(Text="Columns", Dock=DockStyle.Top, AutoSize=true); 
+            numRows; new Label(Text="Rows", Dock=DockStyle.Top, AutoSize=true); 
+            txtHallName; new Label(Text="Hall Name", Dock=DockStyle.Top, AutoSize=true) 
+        |])
+
+        tabs.Controls.Add(pageMovie)
+        tabs.Controls.Add(pageHall)
+        form.Controls.Add(tabs)
+        
+        refreshHalls()
+        form
+
+    let createCinemaForm (movie: Movie) =
+
+        let hall = match movie.HallSnapshot with Some h -> h | None -> { Id="err"; Name="Error"; Rows=5; Cols=5 }
+        
+        let form = new Form(Text = sprintf "%s (%s)" movie.Title hall.Name, AutoScroll = true)
+
+        form.Size <- Size(Math.Min(hall.Cols * 60 + 50, 800), Math.Min(hall.Rows * 60 + 100, 600))
+        
+        let panel = new FlowLayoutPanel(Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White)
+        let btns = ResizeArray<SeatButton>()
+        
+        let refreshSeats() =
+            match Database.getBookedSeats movie.Id with
+            | Ok booked -> btns |> Seq.iter (fun b -> b.Render(booked))
+            | Error _ -> ()
+
+        let handleBooking r c =
+            let ticket = Core.createTicket movie hall r c
+            
+            Database.bookSeat movie.Id r c ticket.Id
+            |> Result.bind (fun _ -> FileSystem.saveTicket ticket)
+            |> function
+               | Ok _ -> MessageBox.Show("Booked! Ticket saved to disk.") |> ignore; refreshSeats()
+               | Error e -> MessageBox.Show(e) |> ignore
+
+        
+        for r in 0 .. hall.Rows - 1 do
+            for c in 0 .. hall.Cols - 1 do
+                let btn = new SeatButton(r, c, handleBooking)
+                btns.Add(btn)
+                panel.Controls.Add(btn)
+        
+        form.Controls.Add(panel)
+        
+        
+        let timer = new Timer(Interval = 2000)
+        timer.Tick.Add(fun _ -> refreshSeats())
+        timer.Start()
+        form.FormClosed.Add(fun _ -> timer.Stop())
+        
+        refreshSeats()
+        form
 
     let createMenuForm () =
         let form = new Form(Text = "Cinema City", Size = Size(500, 600))
@@ -59,11 +175,6 @@ module UI =
             else
                 MessageBox.Show("Wrong Password") |> ignore
         )
-
-        // Important: Add controls in correct Dock order
-        // 1. Add Bottom control first (so it reserves space) OR use explicit Z-ordering. 
-        // In this specific array method: Index 0 is Top Z-order.
-        // We add Panel (Fill) and Button (Bottom). 
         form.Controls.AddRange([| moviePanel; btnAdmin |])
         
         loadMovies()
