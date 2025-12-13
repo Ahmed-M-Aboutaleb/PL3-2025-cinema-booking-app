@@ -59,11 +59,6 @@ module UI =
             else
                 MessageBox.Show("Wrong Password") |> ignore
         )
-
-        // Important: Add controls in correct Dock order
-        // 1. Add Bottom control first (so it reserves space) OR use explicit Z-ordering. 
-        // In this specific array method: Index 0 is Top Z-order.
-        // We add Panel (Fill) and Button (Bottom). 
         form.Controls.AddRange([| moviePanel; btnAdmin |])
         
         loadMovies()
